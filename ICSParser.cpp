@@ -1,76 +1,58 @@
 /*
-  ICSParser.cpp - Library to parse ICS Calendar files.
+  ICSParser.h - Library to parse ICS Calendar files.
   The aim of this library is, to enable you to easily search for words in the event description on given days.
   This will be used to evaluate if tomorrow the trash will be emtied. 
   So that an output can signal to put out the trash.
   Created by Jannis Dohm, 2020-02-12.
   Released under MIT License.
-  210912 Kr modified algo to be compatible to , hopefully all, types of ics calendar from different regions.
   211206 Kr move from FS, deprecated, to LittleFS
+  Rewrite by David Wischnjak, 2023-10-19.
 */
 
-#include "Arduino.h"
 #include "ICSParser.h"
 
-ICSParser::ICSParser(char *DatabaseURL){
-    LittleFS.begin(); // 211206 Kr
-//    _file = SPIFFS.open(strcat("/",DatabaseURL), "r");
-    _file = LittleFS.open(DatabaseURL,"r");  // 211206 Kr, 210820 Kr
-    if (!_file) {
-    Serial.println("file open failed");
-    }
-    else {
-      Serial.printf("open file %s OK",DatabaseURL); //210822 Kr
-    }
-
+ICSParser::ICSParser(File * ics_file) {
+  _file = ics_file;
 }
 
 
-bool ICSParser::CheckDate(char *SearchFor, int day, int month, int year){
-    //search for BEGIN:VEVENT
-    //get position index of BEGIN:VEVENT (can be more than one entryin the file)
-        // check DTSTART and date is in same line and between BEGIN:VEVENT and END:VEVENT
-          // set position index back to BEGIN
-          // check if SearchFor can be found before "END:VEVENT"
-          //    if yes -> return true
-          //    if no -> start new instance of get index...
-          //      recursive....
-          //      return false if end of file was reached
-    _SearchFor=SearchFor; // search pattern garbage container
-    String _StartSearch1 = "BEGIN:VEVENT";
-    String _StartSearch2 = "DTSTART";
-    String _StartSearch3 = String(year) + _ToTwoString(month) + _ToTwoString(day);
-    String _EndSearch = "END:VEVENT";
-    _StartSearch1.toCharArray(_StartSearch1C,28);
-    _StartSearch2.toCharArray(_StartSearch2C,28);
-    _StartSearch3.toCharArray(_StartSearch3C,28);
-    _EndSearch.toCharArray(_EndSearchC,28);
-    return _CheckDateRekursiv(0);
-}
-
-bool ICSParser::_CheckDateRekursiv(int StartIndex){
-    _file.seek(StartIndex,SeekSet); //set position to StartIndex bytes from the beginning
-    if(_file.find(_StartSearch1C)){ //search for BEGIN:VEVENT
-        _savedPosition = _file.position(); // save current position
-        // search for DTSTART starting with BEGIN:VEVENT until END:VEVENT
-        if(_file.findUntil(_StartSearch2C,_EndSearchC)) {
-          // found DTSTART
-          // search for date until end of line
-          if(_file.findUntil(_StartSearch3C,"\n")) {
-            // found date
-            // set file position to BEGIN:VEVENT
-            _file.seek(_savedPosition,SeekSet);
-            // search for garbage pattern
-            if(_file.findUntil(_SearchFor,"END:VEVENT")) return true; //if searced String is in event return true
+int ICSParser::listDates(Timestamp * buffer, int buffer_len, const char * search_str){
+  _file->seek(0,SeekSet);
+  int buffer_pos = 0;
+  while(_file->findUntil(BEGIN_VEVENT, END_VCALENDAR)){
+    int vevent_pos = _file->position();
+    if(_file->findUntil(search_str, END_VEVENT)){
+      _file->seek(vevent_pos,SeekSet);
+      if(_file->findUntil(DTSTART, END_VEVENT)){
+        if(_file->findUntil(":", "\n")){
+          char strtime[16];
+          Timestamp &t = buffer[buffer_pos++];
+          _file->readBytesUntil('\n', strtime, (sizeof(strtime) / sizeof(strtime[0])) - 1);
+          sscanf(strtime, "%4d%2d%2dT%2d%2d%2d", &(t.year), &(t.mon), &(t.day), &(t.hour), &(t.min), &(t.sec));
+          if(buffer_pos >= buffer_len){
+            return buffer_pos;
           }
         }
-        return _CheckDateRekursiv(_file.position()) ; //start rekursion, look for next event -> check for String ..
+      }
     }
-    return false;
+  }
+  return buffer_pos;
 }
 
-String ICSParser::_ToTwoString(int Num){
-    if(Num<0) return "00";
-    if(Num<10) return "0" + String(Num);
-    return String(Num);
+bool ICSParser::checkDate(const char * search_str, int day, int month, int year){
+  char search_date[9];
+  snprintf(search_date, sizeof(search_date) / sizeof(search_date[0]), "%04d%02d%02d", year, month, day);
+  _file->seek(0,SeekSet);
+  while(_file->findUntil(BEGIN_VEVENT, END_VCALENDAR)){
+    int vevent_pos = _file->position();
+    if(_file->findUntil(DTSTART, END_VEVENT)){
+      if(_file->findUntil(search_date, "\n")){
+        _file->seek(vevent_pos,SeekSet);
+        if(_file->findUntil(search_str, END_VEVENT)){
+            return true;
+        }
+      }
+    }
+  }
+  return false;
 }

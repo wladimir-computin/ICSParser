@@ -1,34 +1,77 @@
 # ICSParser
-a Arduino ESP8266 Wemos D1 mini library to search for specific events in a ICS Calendar
+a Arduino ESP8266/ESP32 library to search for specific events in an ICS calendar
+
+## Install
+```cpp
+cd /home/user/Arduino/libraries
+git clone https://github.com/wladimir-computin/ICSParser.git
+```
 
 ## Usage
-### upload ICS calendar
-upload using newest [LittleFS_Tool](https://github.com/esp8266/arduino-esp8266fs-plugin/releases/download/0.5.0/ESP8266FS-0.5.0.zip).
 
-### copy this library
-copy this library into your Arduino library folder. For example on linux this means: /home/user/Arduino/libraries
-
-### header
-include header file:
+### Header
 
 ``` #include <ICSParser.h> ```
 
-### Setup
-In the header erea of your code create ICSParser instance like this:
+### Init
+Upload/Downlaod the "*.ics" file to your LittleFS storage. 
 
-``` ICSParser  ICSParsery("YourFileName.ics"); ``` 
+Create an ICSParser instance:
 
-where YourFileName is the name of your file.
+```cpp
+File f = LittleFS.open("/calender.ics", "r");
+ICSParser ics(&f);
 
-### check Date for event:
-call CheckDate when ever you like.
-It needs the following entries:
+// do stuff
 
-``` CheckDate(string SearchFor, int day, int month, int year); ``` 
+f.close()
+``` 
 
-For example if you'r interested if you need to bring the trash out on the 12.3.2020 you would call:
+### Check a date for a specific event:
 
-``` CheckDate("Grau", 13, 3, 2020); ``` 
+```cpp
+bool checkDate(const char * search_str, int day, int month, int year);
+``` 
 
-This will return ```true``` if "Grau" was found on the given day and ```false``` if not.
+For example, if you're interested if the event `Abfuhr Leichtverpackungen` happens on the `31.1.2023`, you would call:
+
+```cpp
+ics.checkDate("Abfuhr Leichtverpackungen", 31, 1, 2023);
+``` 
+
+You can also get an array of dates containing a specific event:
+
+```cpp
+struct Timestamp {
+  int	sec = 0;
+  int	min = 0;
+  int	hour = 0;
+  int	day = 0;
+  int	mon = 0;
+  int	year = 0;
+};
+
+int listDates(Timestamp * buffer, int buffer_len, const char * search_str);
+```
+
+Use it like this:
+
+```cpp
+const int max_events = 5 * 12;
+auto timestamps = new Timestamp[max_events](); //large array, esp8266 have much more heap than stack memory.
+
+File f = LittleFS.open("/calender.ics", "r");
+ICSParser ics(&f);
+int count = ics.listDates(timestamps, max_events), "Abfuhr Leichtverpackungen");
+
+// do stuff
+for (int i = 0; i < count; i++){
+	Serial.printf("%2d.%2d.%4d\n", timestamps[i].day, timestamps[i].mon, timestamps[i].year);
+}
+
+//clean up
+f.close();
+delete timestamps;
+```
+
 
